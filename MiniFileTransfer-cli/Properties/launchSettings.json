@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MiniFileTransfer-cli": {
+      "commandName": "Project",
+      "commandLineArgs": "client"
+    }
+  }
+}
