@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 
 namespace mift;
 
-internal static class Client {
+internal static class SocketClient {
    internal static async Task SendRequestAsync(IPAddress address, int port, FileInfo fileToSend, ILogger? logger) {
       IPEndPoint ipEndPoint = new IPEndPoint(address, port);
 

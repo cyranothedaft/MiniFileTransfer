@@ -1,14 +1,11 @@
 ﻿using System;
 using System.CommandLine;
 using System.IO;
-using System.Linq;
-using System.Net.Sockets;
 using System.Net;
-using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
-
+using mift.Extensions;
 
 
 namespace mift;
@@ -35,25 +32,30 @@ internal class Program {
       // TODO: also AppDomain.CurrentDomain.ProcessExit ?
       // (see https://medium.com/@rainer_8955/gracefully-shutdown-c-apps-2e9711215f6d)
 
-
-      LogLevel minimumLogLevel = LogLevel.Trace;
-      using ILoggerFactory loggerFactory = buildLoggerFactory(minimumLogLevel);
-      ILogger logger = loggerFactory.CreateLogger("");
-
       // TODO: ? decide on a default port for this application, instead of using random ports (or somehow allow for both options)
+
+      ITransportFactory transportFactory
+            // = new FakeTransportFactory();
+            = new SocketTransportFactory();
 
       await new RootCommand("Send/receive single file over TCP/IP socket")
            .WithGlobalOption(new Option<int?>("--on-port"),
                              out Option<int?> portOption)
-           .WithCommand(new Command("wait", "\"server\" mode - await incoming request from \"client\"")
-                             .WithAsyncHandler(handleWaitAsync, portOption))
+           .WithCommand(new Command("await", "\"server\" mode - await incoming request from \"client\"")
+                       .WithOption(new Option<bool>("--receive-file"),
+                                   out Option<bool> receivingFileOption)
+                       .WithHandler(handleAwaitCommandAsync, portOption, receivingFileOption))
            .WithCommand(new Command("now", "\"client\" mode - instantly send request to specified \"server\"")
                        .WithOption(new Option<FileInfo>("--send-file"),
                                    out Option<FileInfo> sendFileOption)
                        .WithOption(new Option<IPAddress>("--via-listener-at")
-                                        .WithAliases("--from", "--to"),
+
+                                   // TODO: .WithAliases("--from", "--to")
+                                   ,
                                    out Option<IPAddress> addressOption)
-                       .WithAsyncHandler(handleNowAsync, addressOption, portOption, sendFileOption))
+
+                        .WithHandler(handleNowCommandAsync, addressOption, portOption, sendFileOption)
+                       )
 
             // .WithGlobalOption(new Option<LogLevel>("-v").WithAlias("--verbosity"),
             //                   out Option<LogLevel> verbosityOption)
@@ -66,20 +68,42 @@ internal class Program {
             // .WithHandler(handleGetEffectivePerms, verbosityOption, userIdOption, pathOption)
            .InvokeAsync(args); // TODO: if loglevel is Trace, display args and their interpretation
 
-      Task handleWaitAsync(int? port) => handleServerAsync(logger, port);
-      Task handleNowAsync(IPAddress? address, int? port, FileInfo fileToSend) => handleClientAsync(logger, address, port, fileToSend);
+      Task handleAwaitCommandAsync(int? port, bool isReceivingFile)
+         => runAsync(logger => runServerAsync(logger, transportFactory.BuildServer, port, isReceivingFile));
+
+      Task handleNowCommandAsync(IPAddress? address, int? port, FileInfo fileToSend)
+         => runAsync(logger => runServerAsync(logger, transportFactory.BuildServer, port, isReceivingFile));
+
+
+      async Task runAsync(Func<ILogger?, Task> handleCommandAsync) {
+         LogLevel minimumLogLevel = LogLevel.Trace;
+         using ILoggerFactory loggerFactory = buildLoggerFactory(minimumLogLevel);
+         ILogger logger = loggerFactory.CreateLogger("");
+
+         await handleCommandAsync(logger);
+      }
    }
 
 
-   private static async Task<int> handleServerAsync(ILogger? logger, int? listenOnPort) {
+   private static async Task<int> runServerAsync(ILogger? logger, Func<ILogger?, IServer> buildServer,
+                                                 int? listenOnPort, bool isReceivingFile) {
       using ( logger?.BeginScope("<server>") ) {
-         IPAddress? listenOnAddress = null;
-         logger?.LogDebug("Given IP address: {address}, Port: {port}",
-                          listenOnAddress is null ? "(unspecified)" : $"[{listenOnAddress}]",
-                          listenOnPort is null ? "(unspecified)" : $"[{listenOnPort}]");
-         IPAddress address = listenOnAddress ?? selectListeningAddress(logger);
-         int       port    = listenOnPort    ?? selectDefaultPort(logger);
-         await Server.RunAsync(address, port, logger);
+         IServer server = buildServer(logger);
+         logger?.LogTrace("Instantiated server ({serverType})", server.GetType().Name);
+
+         logger?.LogTrace("Starting server (port: {port}, isReceivingFile: {isReceivingFile})",
+                          listenOnPort, isReceivingFile);
+         await server.RunAsync(listenOnPort, isReceivingFile);
+
+         // int? listenOnPort
+         // IPAddress? listenOnAddress = null;
+         // logger?.LogDebug("Given IP address: {address}, Port: {port}",
+         //                  listenOnAddress is null ? "(unspecified)" : $"[{listenOnAddress}]",
+         //                  listenOnPort is null ? "(unspecified)" : $"[{listenOnPort}]");
+         // IPAddress address = listenOnAddress ?? selectListeningAddress(logger);
+         // int       port    = listenOnPort    ?? selectDefaultPort(logger);
+         // await SocketServer.RunAsync(address, port, logger);
+
          return 0;
       }
    }
@@ -92,7 +116,7 @@ internal class Program {
                           connectToPort is null ? "(unspecified)" : $"[{connectToPort}]");
          IPAddress address = connectToAddress ?? selectRemoteAddress(logger);
          int       port    = connectToPort    ?? selectDefaultPort(logger);
-         await Client.SendRequestAsync(address, port, fileToSend, logger);
+         await SocketClient.SendRequestAsync(address, port, fileToSend, logger);
          return 0;
       }
    }

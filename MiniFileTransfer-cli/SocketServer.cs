@@ -11,20 +11,33 @@ using System.Text.Json;
 
 namespace mift;
 
-internal static class Server {
-   internal static async Task RunAsync(IPAddress ipAddress, int port, ILogger? logger) {
-      // TODO: terminate after timeout (partially for security reasons)
-      IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, port);
-      logger?.LogTrace("Listening on endpoint: {ipEndPoint}", ipEndPoint);
+internal class SocketServer : IServer {
+   private readonly ILogger? _logger;
 
-      using ( Socket listener = new(ipEndPoint.AddressFamily,
+   public SocketServer(ILogger? logger) {
+      _logger = logger;
+   }
+
+
+   public async Task RunAsync(int? listenOnPort, bool receiveFileOption) {
+      // TODO: terminate after timeout (partially for security reasons)
+      IPEndPoint ipEndpoint = new IPEndPoint(IPAddress.Any, listenOnPort
+                                                         ?? 9991 // default port
+                                            );
+      _logger?.LogDebug("Starting up listener on endpoint: {endpoint}", ipEndpoint);
+
+      using ( Socket listener = new(ipEndpoint.AddressFamily,
                                     SocketType.Stream,
                                     ProtocolType.Tcp) ) {
-         listener.Bind(ipEndPoint);
+         _logger?.LogTrace("Binding to endpoint...");
+         listener.Bind(ipEndpoint);
+         _logger?.LogTrace("Listening on endpoint...");
          listener.Listen(); // TODO: specify backLog?
 
+         _logger?.LogTrace("Accepting...");
          Socket handler = await listener.AcceptAsync();
-         await receiveWithHandlerAsync(handler, logger);
+         _logger?.LogTrace("Accepted");
+         await receiveWithHandlerAsync(handler, _logger);
       }
    }
 
@@ -96,6 +109,4 @@ internal static class Server {
 
 
    }
-
-
 }
