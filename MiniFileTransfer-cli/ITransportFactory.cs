@@ -7,4 +7,5 @@ namespace mift;
 
 internal interface ITransportFactory {
    IServer BuildServer(ILogger? logger);
+   IClient BuildClient(ILogger? logger);
 }

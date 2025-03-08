@@ -11,7 +11,35 @@ using Microsoft.Extensions.Logging;
 
 namespace mift;
 
-internal static class SocketClient {
+internal class SocketClient : IClient {
+   private readonly ILogger? _logger;
+
+   public SocketClient(ILogger? logger) {
+      _logger = logger;
+   }
+
+
+   public async Task ConnectAsync(IPAddress connectToAddress, int connectToPort) {
+      _logger?.LogTrace("Preparing endpoint:  address({address}), port({port})", connectToAddress, connectToPort);
+      IPEndPoint ipEndPoint = new IPEndPoint(connectToAddress, connectToPort);
+
+      using ( Socket client = new(ipEndPoint.AddressFamily,
+                                  SocketType.Stream,
+                                  ProtocolType.Tcp) ) {
+         _logger?.LogDebug("Connecting to endpoint: {ipEndPoint}", ipEndPoint);
+         await client.ConnectAsync(ipEndPoint);
+
+         _logger?.LogTrace("/-- Sending...");
+         int bytesSent = await client.SendAsync(new byte[] { 1, 2, 3 });
+         _logger?.LogTrace(" <<- Sent {bytesSent} bytes", bytesSent);
+         _logger?.LogTrace("\\-- Sent.");
+
+         _logger?.LogDebug("Shutting down client");
+         client.Shutdown(SocketShutdown.Both);
+      }
+   }
+
+
    internal static async Task SendRequestAsync(IPAddress address, int port, FileInfo fileToSend, ILogger? logger) {
       IPEndPoint ipEndPoint = new IPEndPoint(address, port);
 

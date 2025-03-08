@@ -73,11 +73,11 @@ internal class Program {
            .InvokeAsync(args); // TODO: if loglevel is Trace, display args and their interpretation
 
       Task handleAwaitCommandAsync(bool useFake, int? port, bool isReceiving)
-         => runAsync(useFake, (logger, transportFactory) => runServerAsync(logger, transportFactory.BuildServer, port, isReceiving));
+         => runAsync(useFake, (logger, transportFactory) => runServerAsync(logger, transportFactory.BuildServer,
+                                                                           port, isReceiving));
 
       Task handleNowCommandAsync(bool useFake, IPAddress? address, int? port, bool isReceiving)
-         => runAsync(useFake, (logger, transportFactory) => runClientAsync(logger, 
-                                                                           // transportFactory.BuildClient, 
+         => runAsync(useFake, (logger, transportFactory) => runClientAsync(logger, transportFactory.BuildClient,
                                                                            address, port, isReceiving));
 
 
@@ -87,7 +87,8 @@ internal class Program {
 
          await handleCommandAsync(loggerFactory.CreateLogger(""),
                                   useFake ? new FakeTransportFactory()
-                                          : new SocketTransportFactory());
+                                          : new SocketTransportFactory()
+                                 );
       }
    }
 
@@ -102,16 +103,9 @@ internal class Program {
          IServer server = buildServer(logger);
          logger?.LogTrace("Instantiated server ({type})", server.GetType().Name);
 
-         await server.RunAsync(listenOnPort, isReceiving);
+         int port = listenOnPort ?? selectDefaultPort(logger);
 
-         // int? listenOnPort
-         // IPAddress? listenOnAddress = null;
-         // logger?.LogDebug("Given IP address: {address}, Port: {port}",
-         //                  listenOnAddress is null ? "(unspecified)" : $"[{listenOnAddress}]",
-         //                  listenOnPort is null ? "(unspecified)" : $"[{listenOnPort}]");
-         // IPAddress address = listenOnAddress ?? selectListeningAddress(logger);
-         // int       port    = listenOnPort    ?? selectDefaultPort(logger);
-         // await SocketServer.RunAsync(address, port, logger);
+         await server.RunAsync(port, isReceiving);
 
          return 0;
       }
@@ -132,9 +126,10 @@ internal class Program {
          IClient client = buildClient(logger);
          logger?.LogTrace("Instantiated client ({type})", client.GetType().Name);
 
-         await client.ConnectAsync(connectToAddress, connectToPort);
-//         IPAddress address = connectToAddress ?? selectRemoteAddress(logger);
-//         int       port    = connectToPort    ?? selectDefaultPort(logger);
+         IPAddress address = connectToAddress ?? selectRemoteAddress(logger);
+         int port = connectToPort             ?? selectDefaultPort(logger);
+
+         await client.ConnectAsync(address, port);
 //         await SocketClient.SendRequestAsync(address, port, fileToSend, logger);
          return 0;
       }

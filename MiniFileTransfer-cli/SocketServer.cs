@@ -19,11 +19,9 @@ internal class SocketServer : IServer {
    }
 
 
-   public async Task RunAsync(int? listenOnPort, bool receiveFileOption) {
+   public async Task RunAsync(int listenOnPort, bool receiveFileOption) {
       // TODO: terminate after timeout (partially for security reasons)
-      IPEndPoint ipEndpoint = new IPEndPoint(IPAddress.Any, listenOnPort
-                                                         ?? 9991 // default port
-                                            );
+      IPEndPoint ipEndpoint = new IPEndPoint(IPAddress.Any, listenOnPort);
       _logger?.LogDebug("Starting up listener on endpoint: {endpoint}", ipEndpoint);
 
       using ( Socket listener = new(ipEndpoint.AddressFamily,
@@ -42,43 +40,65 @@ internal class SocketServer : IServer {
    }
 
 
-   private static async Task receiveWithHandlerAsync(Socket handler, ILogger? logger) {
-      // TODO: rewrite using Reactive Streams (Akka.Sreams) for flow control that inherently handles backpressure
-      // https://getakka.net/articles/streams/workingwithstreamingio.html
-      // https://getakka.net/articles/streams/workingwithstreamingio.html
+   private static async Task receiveWithHandlerAsync(Socket socket, ILogger? logger) {
+      // TODO: for flow control that inherently handles backpressure, rewrite using Reactive Streams (Akka.Sreams)
+      //    (https://getakka.net/articles/streams/workingwithstreamingio.html)
+      //    or RSocket
 
-      int bytesReceived;
+
+      string fileName = "received.file";
+      logger?.LogTrace("Opening stream for writing file [{fileName}]",fileName);
+      await using FileStream fileStream = File.OpenWrite(fileName);
+
+      logger?.LogTrace("/-- Receiving...");
+      int totalBytesReceived = 0;
+      await foreach ((byte[] buffer, int size) in socket.ReceiveAsync(Program.TransferBufferSize)) {
+         totalBytesReceived += size;
+         logger?.LogTrace(" ->> Streaming buffer ({size,4}/{max,4}) to file: {totalBytesReceived:N0} bytes read so far",
+                          size, Program.TransferBufferSize, totalBytesReceived);
+         await fileStream.WriteAsync(buffer); // TODO: use AsMemory ?
+      }
+      logger?.LogTrace("\\-- Detected end of incoming stream");
+
+      logger?.LogTrace("Flushing file buffer");
+      await fileStream.FlushAsync();
+      logger?.LogDebug("Finished receiving; total bytes received: [{totalBytesReceived:N0}]. File will be closed when disposed. Server will shut down when disposed.", totalBytesReceived);
+
+
+      // IAsyncEnumerable<byte[]> iae = socket.ReceiveAsync();
+      
 
       // handshake / receive transmission plan
 
-      byte[] handshakeBuffer = new byte[Program.HandshakeBufferSize];
-      bytesReceived = await handler.ReceiveAsync(handshakeBuffer, SocketFlags.None);
-      TxPlan txPlan = JsonSerializer.Deserialize<TxPlan>(handshakeBuffer[..bytesReceived])
-                   ?? throw new Exception("Failed to deserialize handshake buffer");
+      // byte[] handshakeBuffer = new byte[Program.HandshakeBufferSize];
+      // bytesReceived = await socket.ReceiveAsync(handshakeBuffer, SocketFlags.None);
+      // TxPlan txPlan = JsonSerializer.Deserialize<TxPlan>(handshakeBuffer[..bytesReceived])
+      //              ?? throw new Exception("Failed to deserialize handshake buffer");
+      //
+      //
+      // logger?.LogDebug("Received transmission plan: {txPlan}", txPlan);
+      //
+      // // send ACK / signal ready to receive transmission
+      // var ackMessage = ".OK.PROCEED.";
+      // var echoBytes = Encoding.UTF8.GetBytes(ackMessage);
+      // logger?.LogDebug("Sending handshake response");
+      // await socket.SendAsync(echoBytes, SocketFlags.None);
+      //
+      // logger?.LogTrace("Opening stream for writing file [{fileName}]",txPlan.FileName);
+      // await using FileStream fileStream = File.OpenWrite(txPlan.FileName);
+      //
+      // byte[] transferBuffer = new byte[Program.TransferBufferSize];
+      // long totalBytesReceived = 0;
+      // while (totalBytesReceived < txPlan.FileSize) {
+      //    bytesReceived = await socket.ReceiveAsync(transferBuffer, SocketFlags.None);
+      //    totalBytesReceived += bytesReceived;
+      //    logger?.LogTrace("Received {bytesReceived} bytes (total read so far: {totalBytesReceived} / {pct:P1})",
+      //                     bytesReceived, totalBytesReceived, (decimal)totalBytesReceived / txPlan.FileSize);
+      //    logger?.LogTrace("Writing {bytesReceived} bytes to file", bytesReceived);
+      //    await fileStream.WriteAsync(transferBuffer[..bytesReceived]); // TODO: use AsMemory ?
+      // }
+      // logger?.LogDebug("Finished receiving; total bytes received: [{totalBytesReceived:N0}]. Server will shut down when disposed.", totalBytesReceived);
 
-
-      logger?.LogDebug("Received transmission plan: {txPlan}", txPlan);
-
-      // send ACK / signal ready to receive transmission
-      var ackMessage = ".OK.PROCEED.";
-      var echoBytes = Encoding.UTF8.GetBytes(ackMessage);
-      logger?.LogDebug("Sending handshake response");
-      await handler.SendAsync(echoBytes, SocketFlags.None);
-
-      logger?.LogTrace("Opening stream for writing file [{fileName}]",txPlan.FileName);
-      await using FileStream fileStream = File.OpenWrite(txPlan.FileName);
-
-      byte[] transferBuffer = new byte[Program.TransferBufferSize];
-      long totalBytesReceived = 0;
-      while (totalBytesReceived < txPlan.FileSize) {
-         bytesReceived = await handler.ReceiveAsync(transferBuffer, SocketFlags.None);
-         totalBytesReceived += bytesReceived;
-         logger?.LogTrace("Received {bytesReceived} bytes (total read so far: {totalBytesReceived} / {pct:P1})",
-                          bytesReceived, totalBytesReceived, (decimal)totalBytesReceived / txPlan.FileSize);
-         logger?.LogTrace("Writing {bytesReceived} bytes to file", bytesReceived);
-         await fileStream.WriteAsync(transferBuffer[..bytesReceived]); // TODO: use AsMemory ?
-      }
-      logger?.LogDebug("Finished receiving; total bytes received: [{totalBytesReceived:N0}]. Server will shut down when disposed.", totalBytesReceived);
 
       //         while (true) {
       //            // Receive message

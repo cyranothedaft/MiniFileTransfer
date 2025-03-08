@@ -7,5 +7,5 @@ using System.Threading.Tasks;
 namespace mift;
 
 internal interface IClient {
-   Task ConnectAsync(IPAddress? connectToAddress, int? connectToPort);
+   Task ConnectAsync(IPAddress connectToAddress, int connectToPort);
 }
