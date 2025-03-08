@@ -5,10 +5,10 @@ using Microsoft.Extensions.Logging;
 
 namespace mift;
 
-internal class FakeServer : IServer {
+internal class FakeClient : IClient {
    private readonly ILogger? _logger;
 
-   public FakeServer(ILogger? logger) {
+   public FakeClient(ILogger? logger) {
       _logger = logger;
    }
 
@@ -16,8 +16,8 @@ internal class FakeServer : IServer {
    private static readonly TimeSpan Duration = TimeSpan.FromSeconds(5);
 
    public async Task RunAsync(int? listenOnPort, bool isReceiveFile) {
-      _logger?.LogInformation("The server begins; it will end after {duration:F1} seconds.", Duration.TotalSeconds);
+      _logger?.LogInformation("The client begins; it will end after {duration:F1} seconds.", Duration.TotalSeconds);
       await Task.Delay(Duration);
-      _logger?.LogInformation("The server has now ended.");
+      _logger?.LogInformation("The client has now ended.");
    }
 }

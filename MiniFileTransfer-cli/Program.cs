@@ -34,17 +34,18 @@ internal class Program {
 
       // TODO: ? decide on a default port for this application, instead of using random ports (or somehow allow for both options)
 
-      ITransportFactory transportFactory
-            // = new FakeTransportFactory();
-            = new SocketTransportFactory();
-
       await new RootCommand("Send/receive single file over TCP/IP socket")
+           .WithGlobalOption(new Option<bool>("--fake")
+                                  .WithIsHidden(true),
+                             out Option<bool> useFakeTransportOption)
            .WithGlobalOption(new Option<int?>("--on-port"),
                              out Option<int?> portOption)
+           .WithGlobalOption(new Option<bool>("--receive-file"),
+                             out Option<bool> receivingFileOption)
            .WithCommand(new Command("await", "\"server\" mode - await incoming request from \"client\"")
-                       .WithOption(new Option<bool>("--receive-file"),
-                                   out Option<bool> receivingFileOption)
-                       .WithHandler(handleAwaitCommandAsync, portOption, receivingFileOption))
+                       // .WithOption(new Option<bool>("--receive-file"),
+                       //             out Option<bool> receivingFileOption)
+                       .WithHandler(handleAwaitCommandAsync, useFakeTransportOption, portOption, receivingFileOption))
            .WithCommand(new Command("now", "\"client\" mode - instantly send request to specified \"server\"")
                        .WithOption(new Option<FileInfo>("--send-file"),
                                    out Option<FileInfo> sendFileOption)
@@ -54,7 +55,10 @@ internal class Program {
                                    ,
                                    out Option<IPAddress> addressOption)
 
-                        .WithHandler(handleNowCommandAsync, addressOption, portOption, sendFileOption)
+                        .WithHandler(handleNowCommandAsync, useFakeTransportOption, addressOption, portOption, 
+                        receivingFileOption
+                                     // sendFileOption
+                                     )
                        )
 
             // .WithGlobalOption(new Option<LogLevel>("-v").WithAlias("--verbosity"),
@@ -68,32 +72,37 @@ internal class Program {
             // .WithHandler(handleGetEffectivePerms, verbosityOption, userIdOption, pathOption)
            .InvokeAsync(args); // TODO: if loglevel is Trace, display args and their interpretation
 
-      Task handleAwaitCommandAsync(int? port, bool isReceivingFile)
-         => runAsync(logger => runServerAsync(logger, transportFactory.BuildServer, port, isReceivingFile));
+      Task handleAwaitCommandAsync(bool useFake, int? port, bool isReceiving)
+         => runAsync(useFake, (logger, transportFactory) => runServerAsync(logger, transportFactory.BuildServer, port, isReceiving));
 
-      Task handleNowCommandAsync(IPAddress? address, int? port, FileInfo fileToSend)
-         => runAsync(logger => runServerAsync(logger, transportFactory.BuildServer, port, isReceivingFile));
+      Task handleNowCommandAsync(bool useFake, IPAddress? address, int? port, bool isReceiving)
+         => runAsync(useFake, (logger, transportFactory) => runClientAsync(logger, 
+                                                                           // transportFactory.BuildClient, 
+                                                                           address, port, isReceiving));
 
 
-      async Task runAsync(Func<ILogger?, Task> handleCommandAsync) {
+      async Task runAsync(bool useFake, Func<ILogger?, ITransportFactory, Task> handleCommandAsync) {
          LogLevel minimumLogLevel = LogLevel.Trace;
          using ILoggerFactory loggerFactory = buildLoggerFactory(minimumLogLevel);
-         ILogger logger = loggerFactory.CreateLogger("");
 
-         await handleCommandAsync(logger);
+         await handleCommandAsync(loggerFactory.CreateLogger(""),
+                                  useFake ? new FakeTransportFactory()
+                                          : new SocketTransportFactory());
       }
    }
 
 
    private static async Task<int> runServerAsync(ILogger? logger, Func<ILogger?, IServer> buildServer,
-                                                 int? listenOnPort, bool isReceivingFile) {
-      using ( logger?.BeginScope("<server>") ) {
-         IServer server = buildServer(logger);
-         logger?.LogTrace("Instantiated server ({serverType})", server.GetType().Name);
+                                                 int? listenOnPort, bool isReceiving) {
+      using ( logger?.BeginScope("[server]") ) {
+         logger?.LogDebug("Preparing server:  listenOnPort({port}), isReceiving({isReceiving})",
+                          listenOnPort is null ? "<unspecified>" : listenOnPort,
+                          isReceiving);
 
-         logger?.LogTrace("Starting server (port: {port}, isReceivingFile: {isReceivingFile})",
-                          listenOnPort, isReceivingFile);
-         await server.RunAsync(listenOnPort, isReceivingFile);
+         IServer server = buildServer(logger);
+         logger?.LogTrace("Instantiated server ({type})", server.GetType().Name);
+
+         await server.RunAsync(listenOnPort, isReceiving);
 
          // int? listenOnPort
          // IPAddress? listenOnAddress = null;
@@ -109,14 +118,24 @@ internal class Program {
    }
 
 
-   private static async Task<int> handleClientAsync(ILogger? logger, IPAddress? connectToAddress, int? connectToPort, FileInfo fileToSend) {
-      using ( logger?.BeginScope("<client>") ) {
-         logger?.LogDebug("Given IP address: {address}, Port: {port}",
-                          connectToAddress is null ? "(unspecified)" : $"[{connectToAddress}]",
-                          connectToPort is null ? "(unspecified)" : $"[{connectToPort}]");
-         IPAddress address = connectToAddress ?? selectRemoteAddress(logger);
-         int       port    = connectToPort    ?? selectDefaultPort(logger);
-         await SocketClient.SendRequestAsync(address, port, fileToSend, logger);
+   private static async Task<int> runClientAsync(ILogger? logger, Func<ILogger?, IClient> buildClient,
+                                                 IPAddress? connectToAddress, int? connectToPort, 
+                                                 bool isReceiving
+                                                 // FileInfo fileToSend
+                                                       ) {
+      using ( logger?.BeginScope("[client]") ) {
+         logger?.LogDebug("Preparing client:  connectToAddress({address}), connectToPort({port}), isReceiving({isReceiving})",
+                          connectToAddress is null ? "<unspecified>" : connectToAddress,
+                          connectToPort    is null ? "<unspecified>" : connectToPort,
+                          isReceiving);
+
+         IClient client = buildClient(logger);
+         logger?.LogTrace("Instantiated client ({type})", client.GetType().Name);
+
+         await client.ConnectAsync(connectToAddress, connectToPort);
+//         IPAddress address = connectToAddress ?? selectRemoteAddress(logger);
+//         int       port    = connectToPort    ?? selectDefaultPort(logger);
+//         await SocketClient.SendRequestAsync(address, port, fileToSend, logger);
          return 0;
       }
    }
