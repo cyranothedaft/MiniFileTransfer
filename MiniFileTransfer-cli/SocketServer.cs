@@ -54,7 +54,7 @@ internal class SocketServer : IServer {
       int totalBytesReceived = 0;
       await foreach ((byte[] buffer, int size) in socket.ReceiveAsync(Program.TransferBufferSize)) {
          totalBytesReceived += size;
-         logger?.LogTrace(" ->> Streaming buffer ({size,4}/{max,4}) to file: {totalBytesReceived:N0} bytes read so far",
+         logger?.LogTrace(" -<-< Streaming buffer ({size,4}/{max,4}) to file: {totalBytesReceived:N0} bytes read so far",
                           size, Program.TransferBufferSize, totalBytesReceived);
          await fileStream.WriteAsync(buffer); // TODO: use AsMemory ?
       }

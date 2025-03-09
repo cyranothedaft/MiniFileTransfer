@@ -19,24 +19,16 @@ internal class SocketClient : IClient {
    }
 
 
-   public async Task ConnectAsync(IPAddress connectToAddress, int connectToPort) {
+   public async Task<IClientConnection> ConnectAsync(IPAddress connectToAddress, int connectToPort) {
       _logger?.LogTrace("Preparing endpoint:  address({address}), port({port})", connectToAddress, connectToPort);
       IPEndPoint ipEndPoint = new IPEndPoint(connectToAddress, connectToPort);
+         Socket client = new(ipEndPoint.AddressFamily,
+                             SocketType.Stream,
+                             ProtocolType.Tcp);
+      _logger?.LogDebug("Connecting to endpoint: {ipEndPoint}", ipEndPoint);
+      await client.ConnectAsync(ipEndPoint);
+      return new SocketClientConnection(client, _logger);
 
-      using ( Socket client = new(ipEndPoint.AddressFamily,
-                                  SocketType.Stream,
-                                  ProtocolType.Tcp) ) {
-         _logger?.LogDebug("Connecting to endpoint: {ipEndPoint}", ipEndPoint);
-         await client.ConnectAsync(ipEndPoint);
-
-         _logger?.LogTrace("/-- Sending...");
-         int bytesSent = await client.SendAsync(new byte[] { 1, 2, 3 });
-         _logger?.LogTrace(" <<- Sent {bytesSent} bytes", bytesSent);
-         _logger?.LogTrace("\\-- Sent.");
-
-         _logger?.LogDebug("Shutting down client");
-         client.Shutdown(SocketShutdown.Both);
-      }
    }
 
 

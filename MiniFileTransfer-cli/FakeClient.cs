@@ -16,9 +16,9 @@ internal class FakeClient : IClient {
 
    private static readonly TimeSpan Duration = TimeSpan.FromSeconds(5);
 
-   public async Task ConnectAsync(IPAddress connectToAddress, int connectToPort) {
-      _logger?.LogInformation("The client begins; it will end after {duration:F1} seconds.", Duration.TotalSeconds);
-      await Task.Delay(Duration);
-      _logger?.LogInformation("The client has now ended.");
+   public async Task<IClientConnection> ConnectAsync(IPAddress connectToAddress, int connectToPort) {
+      _logger?.LogInformation("The client is connected");
+      await Task.Delay(TimeSpan.FromMilliseconds(150));
+      return new FakeClientConnection(_logger);
    }
 }

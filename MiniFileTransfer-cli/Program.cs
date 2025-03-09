@@ -5,7 +5,7 @@ using System.Net;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
-using mift.Extensions;
+using mift.CommandLineExtensions;
 
 
 namespace mift;
@@ -47,17 +47,17 @@ internal class Program {
                        //             out Option<bool> receivingFileOption)
                        .WithHandler(handleAwaitCommandAsync, useFakeTransportOption, portOption, receivingFileOption))
            .WithCommand(new Command("now", "\"client\" mode - instantly send request to specified \"server\"")
-                       .WithOption(new Option<FileInfo>("--send-file"),
+                       .WithOption(new Option<FileInfo>("--send-file")
+                                        .WithIsRequired(true),
                                    out Option<FileInfo> sendFileOption)
                        .WithOption(new Option<IPAddress>("--via-listener-at")
-
+                                   .WithAliases("--from", "--to")
                                    // TODO: .WithAliases("--from", "--to")
                                    ,
                                    out Option<IPAddress> addressOption)
 
                         .WithHandler(handleNowCommandAsync, useFakeTransportOption, addressOption, portOption, 
-                        receivingFileOption
-                                     // sendFileOption
+                        receivingFileOption, sendFileOption
                                      )
                        )
 
@@ -76,10 +76,9 @@ internal class Program {
          => runAsync(useFake, (logger, transportFactory) => runServerAsync(logger, transportFactory.BuildServer,
                                                                            port, isReceiving));
 
-      Task handleNowCommandAsync(bool useFake, IPAddress? address, int? port, bool isReceiving)
+      Task handleNowCommandAsync(bool useFake, IPAddress? address, int? port, bool isReceiving, FileInfo fileToSend)
          => runAsync(useFake, (logger, transportFactory) => runClientAsync(logger, transportFactory.BuildClient,
-                                                                           address, port, isReceiving));
-
+                                                                           address, port, isReceiving, fileToSend));
 
       async Task runAsync(bool useFake, Func<ILogger?, ITransportFactory, Task> handleCommandAsync) {
          LogLevel minimumLogLevel = LogLevel.Trace;
@@ -114,14 +113,14 @@ internal class Program {
 
    private static async Task<int> runClientAsync(ILogger? logger, Func<ILogger?, IClient> buildClient,
                                                  IPAddress? connectToAddress, int? connectToPort, 
-                                                 bool isReceiving
-                                                 // FileInfo fileToSend
+                                                 bool isReceiving,
+                                                 FileInfo fileToSend
                                                        ) {
       using ( logger?.BeginScope("[client]") ) {
-         logger?.LogDebug("Preparing client:  connectToAddress({address}), connectToPort({port}), isReceiving({isReceiving})",
+         logger?.LogDebug("Preparing client:  connectToAddress({address}), connectToPort({port}), isReceiving({isReceiving}), fileToSend({fileToSend})",
                           connectToAddress is null ? "<unspecified>" : connectToAddress,
                           connectToPort    is null ? "<unspecified>" : connectToPort,
-                          isReceiving);
+                          isReceiving, fileToSend);
 
          IClient client = buildClient(logger);
          logger?.LogTrace("Instantiated client ({type})", client.GetType().Name);
@@ -129,8 +128,9 @@ internal class Program {
          IPAddress address = connectToAddress ?? selectRemoteAddress(logger);
          int port = connectToPort             ?? selectDefaultPort(logger);
 
-         await client.ConnectAsync(address, port);
-//         await SocketClient.SendRequestAsync(address, port, fileToSend, logger);
+         using ( IClientConnection connectedClient = await client.ConnectAsync(address, port) )
+            await connectedClient.SendFile(fileToSend);
+
          return 0;
       }
    }
