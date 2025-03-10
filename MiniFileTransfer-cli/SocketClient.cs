@@ -1,9 +1,6 @@
 ﻿using System;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -22,9 +19,13 @@ internal class SocketClient : IClient {
    public async Task<IClientConnection> ConnectAsync(IPAddress connectToAddress, int connectToPort) {
       _logger?.LogTrace("Preparing endpoint:  address({address}), port({port})", connectToAddress, connectToPort);
       IPEndPoint ipEndPoint = new IPEndPoint(connectToAddress, connectToPort);
-         Socket client = new(ipEndPoint.AddressFamily,
-                             SocketType.Stream,
-                             ProtocolType.Tcp);
+
+      TcpClient client = new TcpClient(ipEndPoint.AddressFamily);
+
+      // Socket client = new(ipEndPoint.AddressFamily,
+      //                     SocketType.Stream,
+      //                     ProtocolType.Tcp);
+
       _logger?.LogDebug("Connecting to endpoint: {ipEndPoint}", ipEndPoint);
       await client.ConnectAsync(ipEndPoint);
       return new SocketClientConnection(client, _logger);
