@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Buffers;
 using System.IO;
+using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -31,7 +33,8 @@ internal class SocketServer : IServer {
       TcpClient acceptedClient = await tpcListener.AcceptTcpClientAsync();
 
       _logger?.LogTrace("Getting client network stream");
-      NetworkStream stream = acceptedClient.GetStream();
+      Socket clientSocket = acceptedClient.Client;
+      await processFileDataAsync(clientSocket);
 
       string fileName = "received.file";
       _logger?.LogTrace("Opening stream for writing file [{fileName}]",fileName);
@@ -48,6 +51,73 @@ internal class SocketServer : IServer {
       _logger?.LogInformation("File received    : {fileName}", fileName);
       byte[] checksum = SHA256.HashData(File.ReadAllBytes(fileName));
       _logger?.LogInformation("Checksum (SHA256): {checksum}", System.Convert.ToHexString(checksum));
+   }
+
+
+   // https://devblogs.microsoft.com/dotnet/system-io-pipelines-high-performance-io-in-net/
+   private async Task processFileDataAsync(Socket socket) {
+      var pipe = new Pipe();
+      Task writing = FillPipeFromSocketAsync(socket, pipe.Writer);
+      Task reading = ReadPipeAsync(pipe.Reader);
+
+      return Task.WhenAll(reading, writing);
+   }
+
+
+
+   async Task FillPipeFromSocketAsync(Socket socket, PipeWriter writer) {
+      const int minimumBufferSize = 512;
+
+      while (true) {
+         // Allocate at least 512 bytes from the PipeWriter
+         Memory<byte> memory = writer.GetMemory(minimumBufferSize);
+         try {
+            int bytesRead = await socket.ReceiveAsync(memory, SocketFlags.None);
+            if (bytesRead == 0) {
+               break;
+            }
+
+            // Tell the PipeWriter how much was read from the Socket
+            writer.Advance(bytesRead);
+         }
+         catch (Exception ex) {
+            _logger?.LogError(ex, "trying to read from socket");
+            break;
+         }
+
+         // Make the data available to the PipeReader
+         FlushResult result = await writer.FlushAsync();
+
+         if (result.IsCompleted) {
+            break;
+         }
+      }
+
+      // Tell the PipeReader that there's no more data coming
+      writer.Complete();
+   }
+
+
+   async Task ReadPipeAsync(PipeReader reader, Action<ReadOnlySequence<byte>> processBuffer) {
+      while (true) {
+         ReadResult result = await reader.ReadAsync();
+
+         ReadOnlySequence<byte> buffer = result.Buffer;
+
+            // Process the buffer
+            processBuffer(buffer);
+
+         // Tell the PipeReader how much of the buffer we have consumed
+         reader.AdvanceTo(buffer.Start, buffer.End);
+
+         // Stop reading if there's no more data coming
+         if (result.IsCompleted) {
+            break;
+         }
+      }
+
+      // Mark the PipeReader as complete
+      reader.Complete();
    }
 
 
