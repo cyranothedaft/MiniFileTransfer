@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -47,6 +48,12 @@ internal class SocketClientConnection : IClientConnection {
 
       _logger?.LogTrace(" <<- Sent {totalBytesSent:N0} bytes", totalBytesSent);
       _logger?.LogTrace("\\-- Sent.");
+
+
+      // TODO: externalize this
+      _logger?.LogInformation("File sent        : {fileName}", fileToSend.Name);
+      byte[] checksum = SHA256.HashData(File.ReadAllBytes(fileToSend.FullName));
+      _logger?.LogInformation("Checksum (SHA256): {checksum}", System.Convert.ToHexString(checksum));
    }
 
 

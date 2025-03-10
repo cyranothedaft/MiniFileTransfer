@@ -2,6 +2,7 @@
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -20,23 +21,33 @@ internal class SocketServer : IServer {
 
 
    public async Task RunAsync(int listenOnPort, bool receiveFileOption) {
-      // TODO: terminate after timeout (partially for security reasons)
       IPEndPoint ipEndpoint = new IPEndPoint(IPAddress.Any, listenOnPort);
+
       _logger?.LogDebug("Starting up listener on endpoint: {endpoint}", ipEndpoint);
+      TcpListener tpcListener = new TcpListener(ipEndpoint);
+      // TODO: terminate after timeout (partially for security reasons)
+      tpcListener.Start();
 
-      using ( Socket listener = new(ipEndpoint.AddressFamily,
-                                    SocketType.Stream,
-                                    ProtocolType.Tcp) ) {
-         _logger?.LogTrace("Binding to endpoint...");
-         listener.Bind(ipEndpoint);
-         _logger?.LogTrace("Listening on endpoint...");
-         listener.Listen(); // TODO: specify backLog?
+      TcpClient acceptedClient = await tpcListener.AcceptTcpClientAsync();
 
-         _logger?.LogTrace("Accepting...");
-         Socket handler = await listener.AcceptAsync();
-         _logger?.LogTrace("Accepted");
-         await receiveWithHandlerAsync(handler, _logger);
-      }
+      _logger?.LogTrace("Getting client network stream");
+      NetworkStream stream = acceptedClient.GetStream();
+
+      string fileName = "received.file";
+      _logger?.LogTrace("Opening stream for writing file [{fileName}]",fileName);
+      await using FileStream fileStream = File.OpenWrite(fileName);
+
+      _logger?.LogTrace("Concatenating network stream and file stream");
+      await stream.CopyToAsync(fileStream);
+
+      _logger?.LogTrace("Finished receiving - flushing and closing file stream");
+      await fileStream.FlushAsync();
+      fileStream.Close();
+
+      // TODO: externalize this
+      _logger?.LogInformation("File received    : {fileName}", fileName);
+      byte[] checksum = SHA256.HashData(File.ReadAllBytes(fileName));
+      _logger?.LogInformation("Checksum (SHA256): {checksum}", System.Convert.ToHexString(checksum));
    }
 
 
